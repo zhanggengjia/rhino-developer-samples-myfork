@@ -1,133 +1,117 @@
+// cd "C:\Users\User\rhino-developer-samples\compute\js\SampleGHDelaunayMesh"
+// ls
+// http-server .
+
 // Import libraries
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import rhino3dm from 'rhino3dm'
-import { RhinoCompute } from 'rhinocompute'
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import rhino3dm from 'rhino3dm';
+import { RhinoCompute } from 'rhinocompute'; // 你目前環境用這個 OK
 
-// reference the definition
-const definitionName = 'delaunay.gh'
+const definitionName = 'delaunay.gh';
+let definition, scene, camera, renderer, controls;
 
-let definition
-let scene, camera, renderer, controls 
+const rhino = await rhino3dm();
+console.log('Loaded rhino3dm.');
 
-const rhino = await rhino3dm()
-console.log('Loaded rhino3dm.')
+RhinoCompute.url = 'http://localhost:6001/';
+// RhinoCompute.apiKey = ''  // 本機 Hops 不用
 
-RhinoCompute.url = getAuth('RHINO_COMPUTE_URL') // RhinoCompute server url. Use http://localhost:8081/ if debugging locally.
-RhinoCompute.apiKey = getAuth('RHINO_COMPUTE_KEY')  // RhinoCompute server api key. Leave blank if debugging locally.
+// 健檢（確認真的打到 6001）
+fetch(`${RhinoCompute.url}healthcheck`)
+  .then((r) => r.text())
+  .then((t) => console.log('compute health:', t));
 
-// source a .gh/.ghx file in the same directory
-let url = definitionName
-let res = await fetch(url)
-let buffer = await res.arrayBuffer()
-definition = new Uint8Array(buffer)
+// 載 GH 檔
+const buffer = await fetch(definitionName).then((r) => r.arrayBuffer());
+definition = new Uint8Array(buffer);
 
-init()
-compute()
+init();
+compute();
 
 async function compute() {
-
-  // generate random points
-
-  let points = []
-  const cntPts = 100
-  const bndX = 100
-  const bndY = 100
-  const bndZ = 10
+  // 產隨機點（用 JSON 格式送到 GH，勿 new Point3d）
+  const points = [];
+  const cntPts = 100,
+    bndX = 100,
+    bndY = 100,
+    bndZ = 10;
 
   for (let i = 0; i < cntPts; i++) {
-    let x = Math.random() * (bndX - -bndX) + -bndX
-    let y = Math.random() * (bndY - -bndY) + -bndY
-    let z = Math.random() * (bndZ - -bndZ) + -bndZ
+    const x = Math.random() * (bndX - -bndX) + -bndX;
+    const y = Math.random() * (bndY - -bndY) + -bndY;
+    const z = Math.random() * (bndZ - -bndZ) + -bndZ;
 
-    let pt = "{\"X\":" + x + ",\"Y\":" + y + ",\"Z\":" + z + "}"
+    // ✅ 送 JSON 給 GH（這是 Grasshopper Compute 預期的 Point3d 格式）
+    points.push(JSON.stringify({ X: x, Y: y, Z: z }));
 
-    points.push(pt)
-
-    //viz in three
-    let geo = new THREE.SphereGeometry(1, 5, 5)
-    geo.translate(x, y, z)
-    let mat = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
-    let sph = new THREE.Mesh(geo, mat)
-    scene.add(sph)
+    // three.js 可視化
+    const geo = new THREE.SphereGeometry(1, 5, 5);
+    geo.translate(x, y, z);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      wireframe: true,
+    });
+    scene.add(new THREE.Mesh(geo, mat));
   }
 
-  const param1 = new RhinoCompute.Grasshopper.DataTree( 'points' )
-  param1.append( [ 0 ], points )
+  // ⚠️ 名稱必須對齊 GH 輸入端 NickName（大小寫也要一樣）
+  const ptsTree = new RhinoCompute.Grasshopper.DataTree('points');
+  ptsTree.append([0], points);
 
-  // clear values
-  const trees = []
-  trees.push( param1 )
-  //console.log(param1)
+  const trees = [ptsTree];
 
-  // Call RhinoCompute
-  const res = await RhinoCompute.Grasshopper.evaluateDefinition(definition, trees)
+  // 呼叫 Compute
+  const res = await RhinoCompute.Grasshopper.evaluateDefinition(
+    definition,
+    trees
+  );
+  if (!res?.values?.length)
+    throw new Error('No values from Compute; check GH input name/type.');
 
-  console.log(res)
+  // 取 mesh（第一個輸出、索引 0 的 branch）
+  const raw = res.values[0].InnerTree['{0}']?.[0]?.data;
+  if (!raw) throw new Error('No mesh data in InnerTree {0}');
+  const mesh = rhino.CommonObject.decode(JSON.parse(raw));
 
-  // remove spinner
-  document.getElementById('loader').remove()
+  document.getElementById('loader')?.remove();
 
-  const data = JSON.parse( res.values[0].InnerTree['{0}'][0].data )
-  const mesh = rhino.CommonObject.decode( data )
-
-  const material = new THREE.MeshBasicMaterial( { wireframe: true, color: 0x00ff00 } )
-  const threeMesh = meshToThreejs( mesh, material )
-
-  scene.add( threeMesh )
-
+  const material = new THREE.MeshBasicMaterial({ wireframe: true });
+  const threeMesh = meshToThreejs(mesh, material);
+  scene.add(threeMesh);
 }
 
-function getAuth(key) {
-  let value = localStorage[key]
-  if (value === undefined) {
-    const prompt = key.includes('URL') ? 'Server URL' : 'Server API Key'
-    value = window.prompt('RhinoCompute ' + prompt)
-    if (value !== null) {
-      localStorage.setItem(key, value)
-    }
-  }
-  return value
-}
-
-// BOILERPLATE //
-
+// --- boilerplate (原樣即可) ---
 function init() {
-
-  // Rhino models are z-up, so set this as the default
-  THREE.Object3D.DefaultUp = new THREE.Vector3(0, 0, 1)
-
-  scene = new THREE.Scene()
-  scene.background = new THREE.Color(1, 1, 1)
-  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000)
-  camera.position.z = 300
-
-  renderer = new THREE.WebGLRenderer({ antialias: true })
-  renderer.setPixelRatio(window.devicePixelRatio)
-  renderer.setSize(window.innerWidth, window.innerHeight)
-  document.body.appendChild(renderer.domElement)
-
-  controls = new OrbitControls(camera, renderer.domElement)
-
-  window.addEventListener('resize', onWindowResize, false)
-
-  animate()
+  THREE.Object3D.DefaultUp = new THREE.Vector3(0, 0, 1);
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x000000); // 黑色
+  camera = new THREE.PerspectiveCamera(
+    45,
+    window.innerWidth / window.innerHeight,
+    1,
+    1000
+  );
+  camera.position.z = 300;
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+  controls = new OrbitControls(camera, renderer.domElement);
+  window.addEventListener('resize', onWindowResize, false);
+  animate();
 }
-
 function animate() {
-  requestAnimationFrame(animate)
-  renderer.render(scene, camera)
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
 }
-
 function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight
-  camera.updateProjectionMatrix()
-  renderer.setSize( window.innerWidth, window.innerHeight )
-  animate()
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
-
 function meshToThreejs(mesh, material) {
-  const loader = new THREE.BufferGeometryLoader()
-  const geometry = loader.parse( mesh.toThreejsJSON() )
-  return new THREE.Mesh( geometry, material )
+  const loader = new THREE.BufferGeometryLoader();
+  const geometry = loader.parse(mesh.toThreejsJSON());
+  return new THREE.Mesh(geometry, material);
 }

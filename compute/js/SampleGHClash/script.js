@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { Rhino3dmLoader } from 'three/examples/jsm/loaders/3DMLoader'
 import rhino3dm from 'rhino3dm'
-import { RhinoCompute } from 'rhinocompute'
+import  {RhinoCompute}  from 'rhinocompute'
 
 // reference the definition
 const definitionName = 'SampleGHClash.gh'
@@ -17,8 +17,11 @@ const rhino = await rhino3dm()
 
 console.log('Loaded rhino3dm.')
 
-RhinoCompute.url = getAuth('RHINO_COMPUTE_URL') // RhinoCompute server url. Use http://localhost:8081/ if debugging locally.
-RhinoCompute.apiKey = getAuth('RHINO_COMPUTE_KEY')  // RhinoCompute server api key. Leave blank if debugging locally.
+RhinoCompute.url = 'http://localhost:6001/'; // RhinoCompute server url. Use http://localhost:8081/ if debugging locally.
+// RhinoCompute.apiKey = getAuth('RHINO_COMPUTE_KEY')  // RhinoCompute server api key. Leave blank if debugging locally.
+
+fetch(`${RhinoCompute.url}healthcheck`).then(r => r.text()).then(t => console.log('compute health:', t));
+
 
 // source a .gh / .ghx file in the same directory
 let url = definitionName
