@@ -3,6 +3,7 @@
 // http-server .
 
 // Import libraries
+// check if work
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import rhino3dm from 'rhino3dm';
